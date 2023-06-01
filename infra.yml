@@ -59,6 +59,7 @@ Resources:
           UpdateEnvironment:
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
+            - 04_install-amazon-codedeploy-agent
         02_config-amazon-cloudwatch-agent:
           files:
             '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json':
@@ -74,8 +75,8 @@ Resources:
                         "collect_list": [
                           {
                             "file_path": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
-                            "log_group_name": "amazon-cloudwatch-agent.log",
-                            "log_stream_name": "amazon-cloudwatch-agent.log",
+                            "log_group_name": "ec2-amazon-cloudwatch-agent",
+                            "log_stream_name": "ec2-amazon-cloudwatch-agent",
                             "timezone": "UTC"
                           },
                           {
@@ -83,7 +84,19 @@ Resources:
                             "log_group_name": "ec2-var-log-messages",
                             "log_stream_name": "ec2-var-log-messages",
                             "timezone": "UTC"
-                          }
+                          },
+                           {
+                             "file_path": "/var/log/cloud-init-output.log",
+                             "log_group_name": "ec2-var-log-cloud-init-output",
+                             "log_stream_name": "ec2-var-log-cloud-init-output",
+                             "timezone": "UTC"
+                           },
+                         {
+                           "file_path": "/var/log/cfn-init-cmd.log",
+                           "log_group_name": "ec2-var-log-cfn-init-cmd",
+                           "log_stream_name": "ec2-var-log-cfn-init-cmd",
+                           "timezone": "UTC"
+                         }
                         ]
                       }
                     },
@@ -100,6 +113,20 @@ Resources:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
         # Cfn-hup setting, it is to monitor the change of metadata.
         # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
+        04_install-amazon-codedeploy-agent:
+          commands:
+            01_install_service:
+              command:
+                - yum update -y
+                - yum install -y ruby wget
+                - wget https://aws-codedeploy-eu-west-1.s3.eu-west-1.amazonaws.com/latest/install
+                - chmod +x ./install
+                - ./install auto
+          services:
+            sysvinit:
+              codedeploy-agent:
+                enabled: true
+                ensureRunning: true
         01_setupCfnHup:
           files:
             '/etc/cfn/cfn-hup.conf':
