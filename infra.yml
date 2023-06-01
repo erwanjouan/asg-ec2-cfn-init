@@ -62,9 +62,6 @@ Resources:
         02_config-amazon-cloudwatch-agent:
           files:
             '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json':
-              mode: '000400'
-              owner: root
-              group: root
               content: !Sub |
                 {
                   "agent": {
