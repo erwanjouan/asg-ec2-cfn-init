@@ -27,6 +27,7 @@ Parameters:
     Type: String
     Default: ec2-cfn-init
 Resources:
+
   Ec2Role:
     Description: Role to download app artifact from S3
     Properties:
@@ -51,12 +52,13 @@ Resources:
   EC2Instance:
     Metadata:
       AWS::CloudFormation::Init:
-        configSets:
-          default:
+        configSets: # has groups of config keys, that can be called by cfn-init -c ..., cfn-init -configsets ....
+          default: # has some config keys
             - 01_setupCfnHup
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
-          UpdateEnvironment:
+            - 04_install_codedeploy_agent
+          UpdateEnvironment: # has other config keys
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
         02_config-amazon-cloudwatch-agent:
@@ -100,6 +102,23 @@ Resources:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
         # Cfn-hup setting, it is to monitor the change of metadata.
         # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
+        04_install_codedeploy_agent:
+          commands:
+            01_yum_update:
+              command:
+                - sudo yum update
+                - sudo yum install ruby
+                - sudo yum install wget
+            02_erase_previous:
+              command:
+                - /opt/codedeploy-agent/bin/codedeploy-agent stop
+                - yum erase codedeploy-agent -y
+            03_download_codedeploy_agent:
+              command:
+                - wget https://aws-codedeploy-eu-west-1.s3.eu-west-1.amazonaws.com/latest/install
+                - chmod +x ./install
+                - ./install auto
+                - service codedeploy-agent start
         01_setupCfnHup:
           files:
             '/etc/cfn/cfn-hup.conf':
