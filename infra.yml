@@ -82,7 +82,7 @@ Resources:
                             "timezone": "UTC"
                           },
                           {
-                            "file_path": "/var/log/message",
+                            "file_path": "/var/log/messages",
                             "log_group_name": "ec2-var-log-messages",
                             "log_stream_name": "ec2-var-log-messages",
                             "timezone": "UTC"
