@@ -9,17 +9,12 @@ Parameters:
   InstanceType:
     Description: EC2 instance type
     Type: String
-    Default: t3.small
+    Default: t3.micro
     ConstraintDescription: must be a valid EC2 instance type.
   InstanceAMI:
     Description: Managed AMI ID for EC2 Instance
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
-  IAMRole:
-    Description: EC2 attached IAM role
-    Type: String
-    Default: CloudWatchAgentAdminRole
-    ConstraintDescription: must be an existing IAM role which will be attached to EC2 instance.
   SSHLocation:
     Description: The IP address range that can be used to SSH to the EC2 instances
     Type: String
@@ -29,8 +24,28 @@ Parameters:
     AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
     ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
 Resources:
+  Ec2Role:
+    Description: Role to download app artifact from S3
+    Properties:
+      RoleName: !Sub ${ProjectName}-role
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+    Type: 'AWS::IAM::Role'
+
+  Ec2InstanceProfile:
+    Properties:
+      InstanceProfileName: !Sub ${ProjectName}-instance-profile
+      Roles: [ !Ref Ec2Role ]
+    Type: 'AWS::IAM::InstanceProfile'
+
   EC2Instance:
-    Type: AWS::EC2::Instance
     Metadata:
       AWS::CloudFormation::Init:
         configSets:
@@ -115,14 +130,11 @@ Resources:
             02start_cfn_hup:
               command: !Sub |
                 systemctl start cfn-hup.service
-
     Properties:
       InstanceType:
         Ref: InstanceType
-      IamInstanceProfile:
-        Ref: IAMRole
-      KeyName:
-        Ref: KeyName
+      IamInstanceProfile: !Ref Ec2InstanceProfile
+      KeyName: !Ref KeyName
       ImageId:
         Ref: InstanceAMI
       SecurityGroups:
@@ -138,8 +150,9 @@ Resources:
       ResourceSignal:
         Count: 1
         Timeout: "PT15M"
+    Type: 'AWS::EC2::Instance'
+
   InstanceSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Enable SSH access via port 22
       SecurityGroupIngress:
@@ -148,3 +161,4 @@ Resources:
           ToPort: '22'
           CidrIp:
             Ref: SSHLocation
+    Type: 'AWS::EC2::SecurityGroup'
