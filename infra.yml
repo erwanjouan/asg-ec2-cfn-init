@@ -78,6 +78,12 @@ Resources:
                             "log_group_name": "amazon-cloudwatch-agent.log",
                             "log_stream_name": "amazon-cloudwatch-agent.log",
                             "timezone": "UTC"
+                          },
+                          {
+                            "file_path": "/var/log/message",
+                            "log_group_name": "ec2-var-log-messages",
+                            "log_stream_name": "ec2-var-log-messages",
+                            "timezone": "UTC"
                           }
                         ]
                       }
