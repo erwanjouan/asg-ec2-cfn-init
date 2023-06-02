@@ -74,34 +74,34 @@ Resources:
                       "files": {
                         "collect_list": [
                           {
-                            "file_path": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
-                            "log_group_name": "ec2-amazon-cloudwatch-agent",
-                            "log_stream_name": "ec2-amazon-cloudwatch-agent",
-                            "timezone": "UTC"
-                          },
-                          {
                             "file_path": "/var/log/messages",
                             "log_group_name": "ec2-var-log-messages",
                             "log_stream_name": "ec2-var-log-messages",
                             "timezone": "UTC"
                           },
-                           {
-                             "file_path": "/var/log/cloud-init-output.log",
-                             "log_group_name": "ec2-var-log-cloud-init-output",
-                             "log_stream_name": "ec2-var-log-cloud-init-output",
-                             "timezone": "UTC"
-                           },
-                         {
-                           "file_path": "/var/log/cfn-init-cmd.log",
-                           "log_group_name": "ec2-var-log-cfn-init-cmd",
-                           "log_stream_name": "ec2-var-log-cfn-init-cmd",
-                           "timezone": "UTC"
-                         }
+                          {
+                            "file_path": "/var/log/cloud-init-output.log",
+                            "log_group_name": "ec2-var-log-cloud-init-output",
+                            "log_stream_name": "ec2-var-log-cloud-init-output",
+                            "timezone": "UTC"
+                          },
+                          {
+                            "file_path": "/var/log/cfn-init-cmd.log",
+                            "log_group_name": "ec2-var-log-cfn-init-cmd",
+                            "log_stream_name": "ec2-var-log-cfn-init-cmd",
+                            "timezone": "UTC"
+                          },
+                          {
+                            "file_path": "/var/log/aws/codedeploy-agent/codedeploy-agent.log",
+                            "log_group_name": "ec2-codedeploy-agent",
+                            "log_stream_name": "ec2-codedeploy-agent",
+                            "timezone": "UTC"
+                          }
                         ]
                       }
                     },
                     "log_stream_name": "my_log_stream_name",
-                    "force_flush_interval" : 15
+                    "force_flush_interval": 15
                   }
                 }
         # Invoke amazon-cloudwatch-agent-ctl to restart the AmazonCloudWatchAgent.
@@ -115,13 +115,17 @@ Resources:
         # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
         04_install-amazon-codedeploy-agent:
           commands:
-            01_install_service:
-              command:
-                - yum update
-                - yum install -y ruby wget
-                - wget https://aws-codedeploy-eu-west-1.s3.eu-west-1.amazonaws.com/latest/install
-                - chmod +x ./install
-                - ./install auto
+            01_update_os:
+              command: >
+                yum update -y &&
+                yum install -y ruby wget
+            02_install_service:
+              command: >
+                wget https://aws-codedeploy-eu-west-1.s3.eu-west-1.amazonaws.com/latest/install
+            03_install_service:
+              command: >
+                chmod +x ./install &&
+                ./install auto
           services:
             sysvinit:
               codedeploy-agent:
