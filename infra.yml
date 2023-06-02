@@ -57,9 +57,6 @@ Resources:
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
             - 04_install-amazon-codedeploy-agent
-          UpdateEnvironment:
-            - 02_config-amazon-cloudwatch-agent
-            - 03_restart_amazon-cloudwatch-agent
         02_config-amazon-cloudwatch-agent:
           files:
             '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json':
@@ -114,18 +111,18 @@ Resources:
         # Cfn-hup setting, it is to monitor the change of metadata.
         # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
         04_install-amazon-codedeploy-agent:
+          packages:
+            yum:
+              ruby: []
+              wget: []
+          files:
+            '/home/ec2-user/install':
+              source: !Sub https://aws-codedeploy-${AWS::Region}.s3.${AWS::Region}.amazonaws.com/latest/install
+              mode: 000755
           commands:
-            01_update_os:
-              command: >
-                yum update -y &&
-                yum install -y ruby wget
-            02_install_service:
-              command: >
-                wget https://aws-codedeploy-eu-west-1.s3.eu-west-1.amazonaws.com/latest/install
-            03_install_service:
-              command: >
-                chmod +x ./install &&
-                ./install auto
+            00_install_agent:
+              command: ./install auto
+              cwd: /home/ec2-user/
           services:
             sysvinit:
               codedeploy-agent:
@@ -142,16 +139,16 @@ Resources:
               mode: '000400'
               owner: root
               group: root
-            '/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf':
-              content: !Sub |
-                [cfn-auto-reloader-hook]
-                triggers=post.update
-                path=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
-                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets UpdateEnvironment
-                runas=root
-              mode: '000400'
-              owner: root
-              group: root
+            #'/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf':
+            #  content: !Sub |
+            #    [cfn-auto-reloader-hook]
+            #    triggers=post.update
+            #    path=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
+            #    action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets UpdateEnvironment
+            #    runas=root
+            #  mode: '000400'
+            #  owner: root
+            #  group: root
             "/lib/systemd/system/cfn-hup.service":
               content: !Sub |
                 [Unit]
