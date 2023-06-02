@@ -56,10 +56,10 @@ Resources:
             - 01_setupCfnHup
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
+            - 04_install-amazon-codedeploy-agent
           UpdateEnvironment:
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
-            - 04_install-amazon-codedeploy-agent
         02_config-amazon-cloudwatch-agent:
           files:
             '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json':
@@ -117,7 +117,7 @@ Resources:
           commands:
             01_install_service:
               command:
-                - yum update -y
+                - yum update
                 - yum install -y ruby wget
                 - wget https://aws-codedeploy-eu-west-1.s3.eu-west-1.amazonaws.com/latest/install
                 - chmod +x ./install
