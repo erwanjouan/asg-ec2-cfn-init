@@ -11,7 +11,7 @@ Parameters:
     Type: String
     Default: t3.micro
     ConstraintDescription: must be a valid EC2 instance type.
-  InstanceAMI:
+  LatestAmiId:
     Description: Managed AMI ID for EC2 Instance
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
@@ -23,14 +23,18 @@ Parameters:
     Default: 0.0.0.0/0
     AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
     ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
-  ProjectName:
+  ProjectDeploymentName:
     Type: String
-    Default: ec2-cfn-init
+    Default: asg-ec2-cfn-init
+  AsgSize:
+    Type: Number
+    Default: 2
+
 Resources:
   Ec2Role:
     Description: Role to download app artifact from S3
     Properties:
-      RoleName: !Sub ${ProjectName}-role
+      RoleName: !Sub ${ProjectDeploymentName}-role
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
@@ -44,14 +48,30 @@ Resources:
 
   Ec2InstanceProfile:
     Properties:
-      InstanceProfileName: !Sub ${ProjectName}-instance-profile
+      InstanceProfileName: !Sub ${ProjectDeploymentName}-instance-profile
       Roles: [ !Ref Ec2Role ]
     Type: 'AWS::IAM::InstanceProfile'
 
-  EC2Instance:
+  AutoScalingGroup:
+    Properties:
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      MinSize: !Ref AsgSize
+      MaxSize: !Ref AsgSize
+      AvailabilityZones: !GetAZs
+      LaunchTemplate:
+        LaunchTemplateId: !Ref Ec2LaunchTemplate
+        Version: !GetAtt Ec2LaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: ProjectDeploymentName
+          Value: !Ref ProjectDeploymentName
+          PropagateAtLaunch: true
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+
+  Ec2LaunchTemplate:
     Metadata:
       AWS::CloudFormation::Init:
-        configSets: # configSets allows to segregate between service, each one having dedicated section
+        configSets: # configSets allows to segregate between use cases, one for initial start, one for update
           create:
             - 00_install-pre-requisites
             - 01_a_config-cfn-hup
@@ -87,14 +107,15 @@ Resources:
               mode: '000400'
               owner: 'root'
               group: 'root'
-            # Hooks configuration.
-            # Cfn-hup setting to monitor the change of Metadata section linked with Resources.EC2Instance
+            # Hooks configuration for template update.
+            # Cfn-hup setting file to monitor changes in Metadata section
+            # of Resources.Ec2LaunchTemplate resource in template.
             /etc/cfn/hooks.d/cfn-auto-reloader.conf:
               content: !Sub |
                 [cfn-auto-reloader-hook]
                 triggers=post.update
-                path=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init
-                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource EC2Instance --configsets update
+                path=Resources.Ec2LaunchTemplate.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource Ec2LaunchTemplate --configsets update
                 runas=root
               mode: '000400'
               owner: 'root'
@@ -180,28 +201,26 @@ Resources:
                 enabled: true
                 ensureRunning: true
     Properties:
-      InstanceType:
-        Ref: InstanceType
-      IamInstanceProfile: !Ref Ec2InstanceProfile
-      KeyName: !Ref KeyName
-      ImageId:
-        Ref: InstanceAMI
-      SecurityGroups:
-        - Ref: InstanceSecurityGroup
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          yum update -y aws-cfn-bootstrap
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets create
-          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region}
-    # Waits for resource signal during 15min
-    # Should be commented out when troubleshooting
-    # Unless instance is destroyed
+      LaunchTemplateName: !Ref ProjectDeploymentName
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Arn: !GetAtt Ec2InstanceProfile.Arn
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        SecurityGroupIds:
+          - !GetAtt InstanceSecurityGroup.GroupId
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum update -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource Ec2LaunchTemplate --region ${AWS::Region} --configsets create
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource Ec2LaunchTemplate --region ${AWS::Region}
     CreationPolicy:
       ResourceSignal:
-        Count: 1
+        Count: !Ref AsgSize
         Timeout: "PT15M"
-    Type: 'AWS::EC2::Instance'
+    Type: 'AWS::EC2::LaunchTemplate'
 
   InstanceSecurityGroup:
     Properties:
