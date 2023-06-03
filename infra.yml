@@ -51,13 +51,91 @@ Resources:
   EC2Instance:
     Metadata:
       AWS::CloudFormation::Init:
-        configSets:
-          default:
-            - 01_setupCfnHup
-            - 02_config-amazon-cloudwatch-agent
-            - 03_restart_amazon-cloudwatch-agent
-            - 04_install-amazon-codedeploy-agent
-        02_config-amazon-cloudwatch-agent:
+        configSets: # configSets allows to segregate between service, each one having dedicated section
+          create:
+            - 00_install-pre-requisites
+            - 01_a_config-cfn-hup
+            - 01_b_check_cfn_hup
+            - 02_install-amazon-codedeploy-agent
+            - 03_check-amazon-codedeploy-agent
+            - 04_install-amazon-cloudwatch-agent
+            - 05_config-amazon-cloudwatch-agent
+            - 06_restart_amazon-cloudwatch-agent
+            - 07_check_amazon-ssm-agent
+          update:
+            - 01_b_check_cfn_hup
+            - 03_check-amazon-codedeploy-agent
+            - 05_config-amazon-cloudwatch-agent
+            - 06_restart_amazon-cloudwatch-agent
+            - 07_check_amazon-ssm-agent
+        00_install-pre-requisites:
+          packages:
+            yum:
+              ruby: [ ]
+              wget: [ ]
+              systemd: [ ]
+        01_a_config-cfn-hup:
+          files:
+            # cfn-hup daemon configuration
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackName}
+                region=${AWS::Region}
+                interval=1
+                verbose=true
+              mode: '000400'
+              owner: 'root'
+              group: 'root'
+            # Hooks configuration.
+            # Cfn-hup setting to monitor the change of Metadata section linked with Resources.EC2Instance
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource EC2Instance --configsets update
+                runas=root
+              mode: '000400'
+              owner: 'root'
+              group: 'root'
+            # cfn-hup systemd service definition
+            "/lib/systemd/system/cfn-hup.service":
+              content: !Sub |
+                [Unit]
+                Description=cfn-hup daemon
+                [Service]
+                Type=simple
+                ExecStart=/opt/aws/bin/cfn-hup
+                Restart=always
+                [Install]
+                WantedBy=multi-user.target
+        01_b_check_cfn_hup:
+          commands:
+            01enable_cfn_hup:
+              command: systemctl enable cfn-hup.service
+            02start_cfn_hup:
+              command: systemctl start cfn-hup.service
+        02_install-amazon-codedeploy-agent:
+          files:
+            '/home/ec2-user/install':
+              source: !Sub https://aws-codedeploy-${AWS::Region}.s3.${AWS::Region}.amazonaws.com/latest/install
+              mode: '000755' # should be quoted
+          commands:
+            00_install_agent:
+              command: ./install auto
+              cwd: /home/ec2-user/
+        03_check-amazon-codedeploy-agent:
+          services:
+            sysvinit:
+              codedeploy-agent:
+                enabled: true
+                ensureRunning: true
+        04_install-amazon-cloudwatch-agent:
+          commands:
+            01_download_cloudwatch_agent:
+              command: rpm -Uvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+        05_config-amazon-cloudwatch-agent:
           files:
             '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json':
               content: !Sub |
@@ -73,25 +151,13 @@ Resources:
                           {
                             "file_path": "/var/log/messages",
                             "log_group_name": "ec2-var-log-messages",
-                            "log_stream_name": "ec2-var-log-messages",
-                            "timezone": "UTC"
-                          },
-                          {
-                            "file_path": "/var/log/cloud-init-output.log",
-                            "log_group_name": "ec2-var-log-cloud-init-output",
-                            "log_stream_name": "ec2-var-log-cloud-init-output",
-                            "timezone": "UTC"
-                          },
-                          {
-                            "file_path": "/var/log/cfn-init-cmd.log",
-                            "log_group_name": "ec2-var-log-cfn-init-cmd",
-                            "log_stream_name": "ec2-var-log-cfn-init-cmd",
+                            "log_stream_name": "{instance_id}",
                             "timezone": "UTC"
                           },
                           {
                             "file_path": "/var/log/aws/codedeploy-agent/codedeploy-agent.log",
                             "log_group_name": "ec2-codedeploy-agent",
-                            "log_stream_name": "ec2-codedeploy-agent",
+                            "log_stream_name": "{instance_id}",
                             "timezone": "UTC"
                           }
                         ]
@@ -101,71 +167,18 @@ Resources:
                     "force_flush_interval": 15
                   }
                 }
-        # Invoke amazon-cloudwatch-agent-ctl to restart the AmazonCloudWatchAgent.
-        03_restart_amazon-cloudwatch-agent:
+        06_restart_amazon-cloudwatch-agent:
           commands:
             01_stop_service:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
             02_start_service:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
-        # Cfn-hup setting, it is to monitor the change of metadata.
-        # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
-        04_install-amazon-codedeploy-agent:
-          packages:
-            yum:
-              ruby: []
-              wget: []
-          files:
-            '/home/ec2-user/install':
-              source: !Sub https://aws-codedeploy-${AWS::Region}.s3.${AWS::Region}.amazonaws.com/latest/install
-              mode: 000755
-          commands:
-            00_install_agent:
-              command: ./install auto
-              cwd: /home/ec2-user/
+        07_check_amazon-ssm-agent:
           services:
             sysvinit:
-              codedeploy-agent:
+              amazon-ssm-agent:
                 enabled: true
                 ensureRunning: true
-        01_setupCfnHup:
-          files:
-            '/etc/cfn/cfn-hup.conf':
-              content: !Sub |
-                [main]
-                stack=${AWS::StackId}
-                region=${AWS::Region}
-                interval=1
-              mode: '000400'
-              owner: root
-              group: root
-            #'/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf':
-            #  content: !Sub |
-            #    [cfn-auto-reloader-hook]
-            #    triggers=post.update
-            #    path=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
-            #    action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets UpdateEnvironment
-            #    runas=root
-            #  mode: '000400'
-            #  owner: root
-            #  group: root
-            "/lib/systemd/system/cfn-hup.service":
-              content: !Sub |
-                [Unit]
-                Description=cfn-hup daemon
-                [Service]
-                Type=simple
-                ExecStart=/opt/aws/bin/cfn-hup
-                Restart=always
-                [Install]
-                WantedBy=multi-user.target
-          commands:
-            01enable_cfn_hup:
-              command: !Sub |
-                systemctl enable cfn-hup.service
-            02start_cfn_hup:
-              command: !Sub |
-                systemctl start cfn-hup.service
     Properties:
       InstanceType:
         Ref: InstanceType
@@ -176,12 +189,14 @@ Resources:
       SecurityGroups:
         - Ref: InstanceSecurityGroup
       UserData:
-        # This script below is to install AmazonCloudWatchAgent, restart AmazonCloudWatchAgent and tell the result to cloudformation.
         Fn::Base64: !Sub |
           #!/bin/bash
-          rpm -Uvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets default
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets create
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region}
+    # Waits for resource signal during 15min
+    # Should be commented out when troubleshooting
+    # Unless instance is destroyed
     CreationPolicy:
       ResourceSignal:
         Count: 1
